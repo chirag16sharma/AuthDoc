@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AuthDoc — Document Authenticity & Identity Verification</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- Top Navigation & System Status -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="logo-badge">
+        <span class="shield-icon">🛡️</span>
+        <div class="logo-titles">
+          <h1>AuthDoc <span class="version-tag">v1.0</span></h1>
+          <p>Border Control & Automated KYC Identity Forensics</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="header-center">
+      <div class="status-pill active"><span class="pulse-dot"></span> ICAO 9303 ENGINE</div>
+      <div class="status-pill active"><span class="pulse-dot"></span> ELA THERMAL SCANNER</div>
+      <div class="status-pill active"><span class="pulse-dot"></span> BIOMETRIC MATCHER</div>
+      <div class="status-pill active"><span class="pulse-dot"></span> SLTD WATCHLIST</div>
+    </div>
+
+    <div class="header-right">
+      <button class="btn-secondary" id="btn-open-watchlist" title="Inspect Local Blacklist Database">
+        🗄️ Watchlist DB
+      </button>
+      <div class="time-chip" id="clock-display">00:00:00 UTC</div>
+    </div>
+  </header>
+
+  <!-- 1-Click Demo Scenarios Toolbar for Judges -->
+  <section class="demo-scenarios-bar">
+    <div class="scenarios-label">
+      <span class="sparkle-icon">⚡</span> <strong>1-CLICK HACKATHON DEMO SCENARIOS:</strong>
+    </div>
+    <div class="scenarios-buttons" id="scenario-buttons-container">
+      <button class="scenario-btn btn-scenario-genuine" data-scenario="scenario_1_genuine">
+        <span class="btn-tag pass">PASS</span> 1. Genuine Passport (USA)
+      </button>
+      <button class="scenario-btn btn-scenario-tamper" data-scenario="scenario_2_tampered_digits">
+        <span class="btn-tag fail">FAIL</span> 2. Tampered Checksum (7-3-1)
+      </button>
+      <button class="scenario-btn btn-scenario-splice" data-scenario="scenario_3_photoshop_forgery">
+        <span class="btn-tag fail">FAIL</span> 3. Photoshop Spliced Photo (ELA)
+      </button>
+      <button class="scenario-btn btn-scenario-watchlist" data-scenario="scenario_4_watchlist_hit">
+        <span class="btn-tag crit">CRIT</span> 4. Interpol Stolen Doc Hit
+      </button>
+      <button class="scenario-btn btn-scenario-impostor" data-scenario="scenario_5_biometric_mismatch">
+        <span class="btn-tag fail">FAIL</span> 5. Biometric Impostor Mismatch
+      </button>
+    </div>
+  </section>
+
+  <!-- Main Application Workspace -->
+  <main class="dashboard-grid">
+
+    <!-- Column 1: Input & Media Ingestion -->
+    <aside class="panel input-panel">
+      <div class="panel-header">
+        <h2>📥 Ingestion & Biometrics</h2>
+        <span class="badge badge-subtle">LIVE CAPTURE</span>
+      </div>
+
+      <form id="verify-form" class="ingest-form">
+        <!-- Document Upload Zone -->
+        <div class="form-group">
+          <label class="input-label">1. Upload ID / Passport Image</label>
+          <div class="dropzone" id="doc-dropzone">
+            <input type="file" id="doc-file-input" accept="image/*">
+            <div class="dropzone-content" id="doc-dropzone-prompt">
+              <span class="upload-icon">📄</span>
+              <p><strong>Click to browse</strong> or drag & drop</p>
+              <span class="subtext">JPG, PNG, TIFF up to 15MB</span>
+            </div>
+            <div class="image-preview-wrapper hidden" id="doc-preview-container">
+              <img id="doc-preview-img" src="" alt="Document Preview">
+              <button type="button" class="btn-clear-img" id="btn-clear-doc">×</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Selfie / Webcam Capture Zone -->
+        <div class="form-group">
+          <div class="flex-between">
+            <label class="input-label">2. Live Selfie (Biometric Check)</label>
+            <div class="tab-toggle">
+              <button type="button" class="tab-btn active" id="tab-webcam">Webcam</button>
+              <button type="button" class="tab-btn" id="tab-upload">Upload</button>
+            </div>
+          </div>
+
+          <!-- Webcam Mode -->
+          <div class="webcam-box" id="webcam-section">
+            <video id="webcam-video" autoplay playsinline muted></video>
+            <canvas id="webcam-canvas" class="hidden"></canvas>
+            <div class="webcam-overlay" id="webcam-placeholder">
+              <span class="cam-icon">📷</span>
+              <p>Webcam Inactive</p>
+              <button type="button" class="btn-sm btn-accent" id="btn-start-camera">Start Camera</button>
+            </div>
+            <div class="webcam-controls hidden" id="webcam-actions">
+              <button type="button" class="btn-sm btn-primary" id="btn-capture-selfie">📸 Capture Frame</button>
+              <button type="button" class="btn-sm btn-secondary" id="btn-stop-camera">Stop</button>
+            </div>
+            <div class="image-preview-wrapper hidden" id="selfie-preview-container">
+              <img id="selfie-preview-img" src="" alt="Selfie Preview">
+              <button type="button" class="btn-clear-img" id="btn-clear-selfie">×</button>
+            </div>
+          </div>
+
+          <!-- File Upload Mode -->
+          <div class="dropzone hidden" id="selfie-dropzone">
+            <input type="file" id="selfie-file-input" accept="image/*">
+            <div class="dropzone-content">
+              <span class="upload-icon">👤</span>
+              <p>Upload selfie photo</p>
+              <span class="subtext">Direct face headshot</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action Button -->
+        <button type="submit" class="btn-verify-main" id="btn-run-verify">
+          <span class="btn-text">⚡ RUN FORENSIC AUDIT</span>
+          <span class="spinner hidden" id="verify-spinner"></span>
+        </button>
+      </form>
+    </aside>
+
+    <!-- Column 2: Explainable Risk Center & Flagged Signals -->
+    <section class="panel risk-panel">
+      <div class="panel-header">
+        <h2>⚖️ Forensic Risk Assessment</h2>
+        <span class="badge badge-accent" id="overall-status-badge">AWAITING AUDIT</span>
+      </div>
+
+      <!-- Risk Gauge & Verdict Card -->
+      <div class="verdict-card" id="verdict-card">
+        <div class="gauge-container">
+          <div class="circular-progress" id="risk-gauge" style="--risk-deg: 0deg;">
+            <div class="inner-circle">
+              <span class="gauge-value" id="gauge-score">--</span>
+              <span class="gauge-label">RISK SCORE</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="verdict-details">
+          <div class="verdict-status-title" id="verdict-decision">NO DATA</div>
+          <p class="verdict-desc" id="verdict-text">Upload a document and selfie or select a hackathon demo scenario above.</p>
+          
+          <!-- Component Weight Progress Bars -->
+          <div class="risk-components">
+            <div class="comp-bar-group">
+              <div class="comp-label">
+                <span>ICAO & Rule Validity (30%)</span>
+                <span id="score-val-text">--</span>
+              </div>
+              <div class="progress-track"><div class="progress-fill" id="bar-val" style="width: 0%;"></div></div>
+            </div>
+
+            <div class="comp-bar-group">
+              <div class="comp-label">
+                <span>Tampering & ELA Risk (40%)</span>
+                <span id="score-tamper-text">--</span>
+              </div>
+              <div class="progress-track"><div class="progress-fill" id="bar-tamper" style="width: 0%;"></div></div>
+            </div>
+
+            <div class="comp-bar-group">
+              <div class="comp-label">
+                <span>Biometric Discrepancy (30%)</span>
+                <span id="score-face-text">--</span>
+              </div>
+              <div class="progress-track"><div class="progress-fill" id="bar-face" style="width: 0%;"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Flagged Reasons & Audit Trail -->
+      <div class="audit-reasons-box">
+        <h3>🔍 Explainable Risk Signals</h3>
+        <div class="reasons-list" id="reasons-list-container">
+          <div class="empty-state">No audit executed yet. Choose a demo or upload documents to see explainable signals.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Column 3: Forensic Inspection Tabs & Deep-Dive Evidence -->
+    <section class="panel details-panel">
+      <div class="panel-header">
+        <div class="tabs-header">
+          <button class="nav-tab active" data-tab="tab-content-mrz">📋 OCR & ICAO 9303</button>
+          <button class="nav-tab" data-tab="tab-content-ela">🔥 ELA Thermal Heatmap</button>
+          <button class="nav-tab" data-tab="tab-content-bio">👤 Biometric Match</button>
+        </div>
+      </div>
+
+      <!-- TAB 1: OCR & ICAO 9303 Check Digit Inspector -->
+      <div class="tab-pane active" id="tab-content-mrz">
+        <!-- Extracted Fields Grid -->
+        <div class="sub-section">
+          <h4>Structured Identity Fields</h4>
+          <div class="fields-grid" id="fields-grid-container">
+            <div class="field-cell"><span class="k">FULL NAME</span><span class="v" id="f-name">--</span></div>
+            <div class="field-cell"><span class="k">DOC NUMBER</span><span class="v mono" id="f-docnum">--</span></div>
+            <div class="field-cell"><span class="k">NATIONALITY</span><span class="v" id="f-nat">--</span></div>
+            <div class="field-cell"><span class="k">DATE OF BIRTH</span><span class="v" id="f-dob">--</span></div>
+            <div class="field-cell"><span class="k">EXPIRATION</span><span class="v" id="f-exp">--</span></div>
+            <div class="field-cell"><span class="k">SEX / GENDER</span><span class="v" id="f-sex">--</span></div>
+            <div class="field-cell"><span class="k">ISSUING STATE</span><span class="v" id="f-issuer">--</span></div>
+            <div class="field-cell"><span class="k">OCR ENGINE</span><span class="v" id="f-engine">--</span></div>
+          </div>
+        </div>
+
+        <!-- ICAO 9303 7-3-1 Check Digits Deep-Dive Table -->
+        <div class="sub-section">
+          <div class="flex-between">
+            <h4>ICAO 9303 Checksum Verification (7-3-1 Weight Pattern)</h4>
+            <span class="badge badge-subtle">MATHEMATICAL PROOF</span>
+          </div>
+          <div class="checkdigit-table-wrapper">
+            <table class="data-table" id="checkdigit-table">
+              <thead>
+                <tr>
+                  <th>Field</th>
+                  <th>Raw Value</th>
+                  <th>Computed</th>
+                  <th>Printed</th>
+                  <th>Checksum Status</th>
+                </tr>
+              </thead>
+              <tbody id="checkdigit-tbody">
+                <tr><td colspan="5" class="text-center text-muted">Awaiting OCR verification...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Raw MRZ Lines Display -->
+        <div class="sub-section">
+          <h4>Machine Readable Zone (Raw ICAO Stream)</h4>
+          <pre class="mrz-stream" id="mrz-stream-display">Awaiting document...</pre>
+        </div>
+      </div>
+
+      <!-- TAB 2: Error Level Analysis (ELA) & Metadata Forensics -->
+      <div class="tab-pane" id="tab-content-ela">
+        <div class="ela-view-container">
+          <div class="ela-image-card">
+            <div class="card-caption">Original Document</div>
+            <div class="img-box">
+              <img id="ela-orig-view" src="" alt="Original Document">
+            </div>
+          </div>
+          <div class="ela-image-card">
+            <div class="card-caption">ELA Thermal Heatmap Overlay</div>
+            <div class="img-box">
+              <img id="ela-heatmap-view" src="" alt="ELA Heatmap">
+            </div>
+            <div class="thermal-legend">
+              <span>Low Error (Uniform)</span>
+              <div class="thermal-bar"></div>
+              <span>High Error (Spliced)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ELA Stats & EXIF Forensics Grid -->
+        <div class="sub-section mt-4">
+          <h4>Metadata & Compression Metrics</h4>
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <span class="m-title">Peak-to-Average Ratio</span>
+              <span class="m-val" id="metric-par">--</span>
+              <span class="m-desc">> 2.5x indicates splicing</span>
+            </div>
+            <div class="metric-card">
+              <span class="m-title">ELA Anomaly Score</span>
+              <span class="m-val" id="metric-ela-score">--</span>
+              <span class="m-desc">Scale 0.0 - 1.0</span>
+            </div>
+            <div class="metric-card">
+              <span class="m-title">EXIF Tamper Status</span>
+              <span class="m-val" id="metric-exif-status">--</span>
+              <span class="m-desc" id="metric-software-desc">No software detected</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: Biometric Identity & Face Verification -->
+      <div class="tab-pane" id="tab-content-bio">
+        <div class="bio-comparison-box">
+          <div class="bio-portrait-card">
+            <span class="bio-label">Document Photo (Cropped)</span>
+            <div class="bio-img-wrapper">
+              <img id="bio-doc-face" src="" alt="Document Portrait">
+            </div>
+          </div>
+
+          <div class="bio-vs-badge">
+            <div class="vs-circle">VS</div>
+            <div class="sim-badge" id="bio-sim-val">--% SIMILARITY</div>
+          </div>
+
+          <div class="bio-portrait-card">
+            <span class="bio-label">Live Selfie / Webcam</span>
+            <div class="bio-img-wrapper">
+              <img id="bio-selfie-face" src="" alt="Live Selfie">
+            </div>
+          </div>
+        </div>
+
+        <div class="bio-metrics-box mt-4">
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <span class="m-title">Biometric Match</span>
+              <span class="m-val" id="bio-match-verdict">--</span>
+              <span class="m-desc" id="bio-engine-name">Engine: DeepFace</span>
+            </div>
+            <div class="metric-card">
+              <span class="m-title">Cosine Distance</span>
+              <span class="m-val" id="bio-distance">--</span>
+              <span class="m-desc" id="bio-threshold">Threshold: 0.40</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- Watchlist Inspector Modal -->
+  <div class="modal hidden" id="watchlist-modal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>🗄️ Interpol & Watchlist Local Database (SQLite)</h3>
+        <button type="button" class="btn-close-modal" id="btn-close-watchlist">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="subtext">Simulated border control registry containing known stolen travel documents and flagged identities.</p>
+        
+        <h4 class="mt-4">Stolen & Lost Travel Documents (SLTD)</h4>
+        <div class="table-scroll">
+          <table class="data-table" id="modal-blacklist-table">
+            <thead>
+              <tr><th>Doc Number</th><th>Country</th><th>Reason</th><th>Date Flagged</th><th>Severity</th></tr>
+            </thead>
+            <tbody id="modal-blacklist-tbody">
+              <!-- Populated via JS -->
+            </tbody>
+          </table>
+        </div>
+
+        <h4 class="mt-4">Watchlist Persons</h4>
+        <div class="table-scroll">
+          <table class="data-table" id="modal-watchlist-table">
+            <thead>
+              <tr><th>Name</th><th>Nationality</th><th>DOB</th><th>Notice Reason</th><th>Risk</th></tr>
+            </thead>
+            <tbody id="modal-watchlist-tbody">
+              <!-- Populated via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
