@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+
+face_test/*.jpg
+face_test/*.png
