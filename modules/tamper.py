@@ -148,8 +148,73 @@ def generate_ela_heatmap(orig_img: Image.Image, channel_diff: np.ndarray) -> str
     return f"data:image/jpeg;base64,{img_b64}"
 
 
+def compute_dhash(img: Image.Image, hash_size: int = 8) -> int:
+    """Computes standard 64-bit difference hash (dHash) for perceptual similarity comparison."""
+    resized = img.convert("L").resize((hash_size + 1, hash_size), Image.Resampling.LANCZOS)
+    arr = np.array(resized, dtype=np.int32)
+    diff = arr[:, 1:] > arr[:, :-1]
+    hash_val = 0
+    for bit in diff.flatten():
+        hash_val = (hash_val << 1) | int(bit)
+    return hash_val
+
+
+def compute_hash_divergence(hash1: int, hash2: int, bit_length: int = 64) -> float:
+    """Computes normalized Hamming distance (0.0 to 1.0) between two bit hashes."""
+    x = hash1 ^ hash2
+    hamming = bin(x).count("1")
+    return round(hamming / float(bit_length), 3)
+
+
+def extract_exif_thumbnail(img: Image.Image, image_input=None) -> Optional[Image.Image]:
+    """Attempts to extract embedded EXIF thumbnail from an image using Pillow / exifread."""
+    try:
+        exif = img.getexif()
+        if exif:
+            if hasattr(exif, "get_thumbnail"):
+                thumb_bytes = exif.get_thumbnail()
+                if thumb_bytes:
+                    return Image.open(io.BytesIO(thumb_bytes)).convert("RGB")
+            ifd1 = exif.get_ifd(1) if hasattr(exif, "get_ifd") else {}
+            if ifd1 and 0x0201 in ifd1 and 0x0202 in ifd1:
+                raw_bytes = None
+                if isinstance(image_input, bytes):
+                    raw_bytes = image_input
+                elif isinstance(image_input, str) and os.path.exists(image_input):
+                    with open(image_input, "rb") as f:
+                        raw_bytes = f.read()
+                if raw_bytes:
+                    offset = ifd1[0x0201]
+                    length = ifd1[0x0202]
+                    thumb_data = raw_bytes[offset:offset + length]
+                    if thumb_data:
+                        return Image.open(io.BytesIO(thumb_data)).convert("RGB")
+    except Exception:
+        pass
+
+    try:
+        import exifread
+        f_stream = None
+        if isinstance(image_input, str) and os.path.exists(image_input):
+            f_stream = open(image_input, "rb")
+        elif isinstance(image_input, bytes):
+            f_stream = io.BytesIO(image_input)
+        if f_stream:
+            try:
+                tags = exifread.process_file(f_stream, details=False)
+                if "JPEGThumbnail" in tags and tags["JPEGThumbnail"]:
+                    return Image.open(io.BytesIO(tags["JPEGThumbnail"])).convert("RGB")
+            finally:
+                if isinstance(image_input, str):
+                    f_stream.close()
+    except Exception:
+        pass
+
+    return None
+
+
 def inspect_metadata(image_input) -> Tuple[float, Dict[str, Any], List[str]]:
-    """Extracts EXIF and checks for tampering signatures and anomalies.
+    """Extracts EXIF and checks for tampering signatures, thumbnail mismatches, and anomalies.
     Returns:
         (metadata_score: float 0-1, metadata_dict: dict, flagged_reasons: list)
     """
@@ -221,13 +286,33 @@ def inspect_metadata(image_input) -> Tuple[float, Dict[str, Any], List[str]]:
         flagged.append(f"Timestamp anomaly: Photo taken {original_date} but modified on {modify_date}")
         meta_score = max(meta_score, 0.45)
 
+    # 3. Check for EXIF Thumbnail vs Full Image Perceptual Hash Mismatch
+    thumb_img = extract_exif_thumbnail(img, image_input)
+    if thumb_img:
+        metadata["has_exif_thumbnail"] = True
+        full_hash = compute_dhash(img)
+        thumb_hash = compute_dhash(thumb_img)
+        divergence = compute_hash_divergence(full_hash, thumb_hash)
+        metadata["thumbnail_hash_divergence"] = divergence
+
+        # If divergence exceeds 22% (typical threshold for edited/spliced images)
+        if divergence > 0.22:
+            meta_score = max(meta_score, 0.85)
+            flagged.append(
+                f"EXIF thumbnail mismatch: Embedded thumbnail differs from full image ({round(divergence * 100, 1)}% perceptual divergence) — indicates content was modified after capture without regenerating metadata thumbnail"
+            )
+            metadata["thumbnail_mismatch_detected"] = True
+        else:
+            metadata["thumbnail_mismatch_detected"] = False
+    else:
+        metadata["has_exif_thumbnail"] = False
+
     # Check for stripped EXIF in scanned / photo ID
     if not has_exif:
         metadata["exif_status"] = "STRIPPED_OR_ABSENT"
         metadata_notes = "Metadata absent (common in web exports or canvas-edited images)"
         metadata["notes"] = metadata_notes
-        # Mild risk signal: genuine phone/camera photos of passports have EXIF
-        meta_score = max(meta_score, 0.20)
+        meta_score = max(meta_score, 0.05)
     else:
         metadata["exif_status"] = "PRESENT"
         if make_tag or model_tag:
@@ -259,8 +344,8 @@ def analyze_tampering(image_input) -> Dict[str, Any]:
     # 3. Synthesize Tamper Score
     # ELA represents physical compression artifacts (65% weight)
     # Metadata forensics represents provenance trails (35% weight)
-    # If software signature is definitively found, force high tamper score
-    if "tampering_software_detected" in meta_dict:
+    # If software signature or thumbnail mismatch is definitively found, force high tamper score
+    if "tampering_software_detected" in meta_dict or meta_dict.get("thumbnail_mismatch_detected"):
         tamper_score = max(0.85, 0.6 * ela_score + 0.4 * meta_score)
     else:
         tamper_score = 0.65 * ela_score + 0.35 * meta_score

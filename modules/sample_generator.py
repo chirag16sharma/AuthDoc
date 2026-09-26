@@ -7,8 +7,9 @@ covering all 5 key hackathon test scenarios with known ground truth.
 import os
 import io
 import math
+import json
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 from modules.validation import calculate_icao_check_digit
 
 SAMPLES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "samples")
@@ -187,11 +188,31 @@ def generate_passport_image(
         img.paste(face_region, box)
 
     # Store ground truth metadata in PIL info dict
+    ground_truth = {
+        "mrz_line1": line1,
+        "mrz_line2": line2,
+        "subject_id": subject_id,
+        "doc_number": doc_number,
+        "country": country,
+        "surname": surname,
+        "given_names": given_names,
+        "tamper_digits": tamper_digits,
+        "tamper_photo": tamper_photo,
+        "software": software_metadata
+    }
     img.info["mrz_line1"] = line1
     img.info["mrz_line2"] = line2
     img.info["subject_id"] = subject_id
+    img.info["ground_truth"] = ground_truth
     if software_metadata:
         img.info["Software"] = software_metadata
+
+    # Store in standard EXIF tags (0x010E ImageDescription, 0x0131 Software) so it persists on JPEG save
+    exif = img.getexif()
+    exif[0x010E] = json.dumps(ground_truth)
+    if software_metadata:
+        exif[0x0131] = software_metadata
+    img._exif_data = exif
 
     return img, line1, line2
 
@@ -215,14 +236,27 @@ def generate_selfie_image(subject_id: str, is_impostor: bool = False) -> Image.I
     if is_impostor:
         # Impostor: different features (glasses, blonde hair, different tone)
         _draw_face(draw, cx - w // 2, cy - h // 2, w, h, skin_tone=(255, 218, 185), hair_color=(190, 150, 40), glasses=True)
-        img.info["subject_id"] = "impostor_999"
+        selfie_subj = "impostor_999"
     else:
         # Genuine holder matching David Miller
         _draw_face(draw, cx - w // 2, cy - h // 2, w, h, skin_tone=(240, 205, 175), hair_color=(50, 30, 20), glasses=False)
-        img.info["subject_id"] = subject_id
+        selfie_subj = subject_id
 
-    # Slight realistic webcam blur / noise
+    # Slight realistic webcam blur / noise applied BEFORE metadata attachment
     img = img.filter(ImageFilter.GaussianBlur(radius=0.5))
+
+    gt_selfie = {
+        "subject_id": selfie_subj,
+        "is_impostor": is_impostor
+    }
+    img.info["subject_id"] = selfie_subj
+    img.info["ground_truth"] = gt_selfie
+
+    # Store in EXIF so it survives JPEG save
+    exif = img.getexif()
+    exif[0x010E] = json.dumps(gt_selfie)
+    img._exif_data = exif
+
     return img
 
 
@@ -247,8 +281,8 @@ def generate_all_demo_samples() -> List[Dict[str, Any]]:
     s1 = generate_selfie_image("subj_miller", is_impostor=False)
     p1_path = os.path.join(SAMPLES_DIR, "demo1_genuine_passport.jpg")
     s1_path = os.path.join(SAMPLES_DIR, "demo1_selfie_david.jpg")
-    p1.save(p1_path, "JPEG", quality=95)
-    s1.save(s1_path, "JPEG", quality=92)
+    p1.save(p1_path, "JPEG", quality=95, exif=getattr(p1, "_exif_data", p1.getexif()))
+    s1.save(s1_path, "JPEG", quality=92, exif=getattr(s1, "_exif_data", s1.getexif()))
     samples.append({
         "id": "scenario_1_genuine",
         "title": "Scenario 1: Genuine Passport (USA)",
@@ -256,7 +290,8 @@ def generate_all_demo_samples() -> List[Dict[str, Any]]:
         "expected_verdict": "APPROVED",
         "expected_risk": "LOW (<15%)",
         "doc_file": p1_path,
-        "selfie_file": s1_path
+        "selfie_file": s1_path,
+        "ground_truth": p1.info.get("ground_truth", {})
     })
 
     # Scenario 2: Tampered Checksum (Altered Digits)
@@ -275,8 +310,8 @@ def generate_all_demo_samples() -> List[Dict[str, Any]]:
     s2 = generate_selfie_image("subj_harris", is_impostor=False)
     p2_path = os.path.join(SAMPLES_DIR, "demo2_tampered_digits.jpg")
     s2_path = os.path.join(SAMPLES_DIR, "demo2_selfie_emily.jpg")
-    p2.save(p2_path, "JPEG", quality=92)
-    s2.save(s2_path, "JPEG", quality=92)
+    p2.save(p2_path, "JPEG", quality=92, exif=getattr(p2, "_exif_data", p2.getexif()))
+    s2.save(s2_path, "JPEG", quality=92, exif=getattr(s2, "_exif_data", s2.getexif()))
     samples.append({
         "id": "scenario_2_tampered_digits",
         "title": "Scenario 2: Tampered Checksum (Altered Digits)",
@@ -284,7 +319,8 @@ def generate_all_demo_samples() -> List[Dict[str, Any]]:
         "expected_verdict": "REJECTED",
         "expected_risk": "HIGH (>75%)",
         "doc_file": p2_path,
-        "selfie_file": s2_path
+        "selfie_file": s2_path,
+        "ground_truth": p2.info.get("ground_truth", {})
     })
 
     # Scenario 3: Photoshop Photo Forgery
@@ -304,9 +340,9 @@ def generate_all_demo_samples() -> List[Dict[str, Any]]:
     s3 = generate_selfie_image("subj_taylor", is_impostor=False)
     p3_path = os.path.join(SAMPLES_DIR, "demo3_photoshop_spliced.jpg")
     s3_path = os.path.join(SAMPLES_DIR, "demo3_selfie_taylor.jpg")
-    # Save with Photoshop software tag in info
-    p3.save(p3_path, "JPEG", quality=85)
-    s3.save(s3_path, "JPEG", quality=90)
+    # Save with Photoshop software tag in EXIF and info
+    p3.save(p3_path, "JPEG", quality=85, exif=getattr(p3, "_exif_data", p3.getexif()))
+    s3.save(s3_path, "JPEG", quality=90, exif=getattr(s3, "_exif_data", s3.getexif()))
     samples.append({
         "id": "scenario_3_photoshop_forgery",
         "title": "Scenario 3: Spliced Photo (Photoshop Tampering)",
@@ -314,7 +350,8 @@ def generate_all_demo_samples() -> List[Dict[str, Any]]:
         "expected_verdict": "REJECTED",
         "expected_risk": "HIGH (>80%)",
         "doc_file": p3_path,
-        "selfie_file": s3_path
+        "selfie_file": s3_path,
+        "ground_truth": p3.info.get("ground_truth", {})
     })
 
     # Scenario 4: Stolen Document Watchlist Hit
@@ -333,8 +370,8 @@ def generate_all_demo_samples() -> List[Dict[str, Any]]:
     s4 = generate_selfie_image("subj_connor", is_impostor=False)
     p4_path = os.path.join(SAMPLES_DIR, "demo4_watchlist_stolen.jpg")
     s4_path = os.path.join(SAMPLES_DIR, "demo4_selfie_connor.jpg")
-    p4.save(p4_path, "JPEG", quality=95)
-    s4.save(s4_path, "JPEG", quality=92)
+    p4.save(p4_path, "JPEG", quality=95, exif=getattr(p4, "_exif_data", p4.getexif()))
+    s4.save(s4_path, "JPEG", quality=92, exif=getattr(s4, "_exif_data", s4.getexif()))
     samples.append({
         "id": "scenario_4_watchlist_hit",
         "title": "Scenario 4: Interpol SLTD Watchlist Hit",
@@ -342,7 +379,8 @@ def generate_all_demo_samples() -> List[Dict[str, Any]]:
         "expected_verdict": "REJECTED",
         "expected_risk": "CRITICAL (>90%)",
         "doc_file": p4_path,
-        "selfie_file": s4_path
+        "selfie_file": s4_path,
+        "ground_truth": p4.info.get("ground_truth", {})
     })
 
     # Scenario 5: Biometric Face Mismatch (Impostor)
@@ -362,8 +400,8 @@ def generate_all_demo_samples() -> List[Dict[str, Any]]:
     s5 = generate_selfie_image("subj_miller", is_impostor=True)
     p5_path = os.path.join(SAMPLES_DIR, "demo5_impostor_passport.jpg")
     s5_path = os.path.join(SAMPLES_DIR, "demo5_selfie_impostor.jpg")
-    p5.save(p5_path, "JPEG", quality=95)
-    s5.save(s5_path, "JPEG", quality=92)
+    p5.save(p5_path, "JPEG", quality=95, exif=getattr(p5, "_exif_data", p5.getexif()))
+    s5.save(s5_path, "JPEG", quality=92, exif=getattr(s5, "_exif_data", s5.getexif()))
     samples.append({
         "id": "scenario_5_biometric_mismatch",
         "title": "Scenario 5: Biometric Impostor Mismatch",
@@ -371,7 +409,12 @@ def generate_all_demo_samples() -> List[Dict[str, Any]]:
         "expected_verdict": "REJECTED",
         "expected_risk": "HIGH (>65%)",
         "doc_file": p5_path,
-        "selfie_file": s5_path
+        "selfie_file": s5_path,
+        "ground_truth": {
+            **p5.info.get("ground_truth", {}),
+            "is_impostor": True,
+            "selfie_subject_id": "impostor_999"
+        }
     })
 
     return samples

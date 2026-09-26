@@ -26,26 +26,40 @@ def compute_risk_score(
         w_val = 0.30
         w_tamper = 0.40
         w_face = 0.30
-
-        raw_risk = (
-            w_val * (1.0 - val_score) +
-            w_tamper * tamper_score +
-            w_face * (1.0 - face_score)
-        )
     else:
-        # 2-component document-only mode
+        # Document-only mode (no selfie provided)
         face_score = None
         w_val = 0.45
         w_tamper = 0.55
         w_face = 0.0
 
-        raw_risk = (
-            w_val * (1.0 - val_score) +
-            w_tamper * tamper_score
-        )
+    # Base weighted risk calculation
+    raw_risk = (
+        w_val * (1.0 - val_score) +
+        w_tamper * tamper_score +
+        (w_face * (1.0 - face_score) if face_score is not None else 0.0)
+    )
 
-    # Scale to 0 - 100
-    overall_risk = round(min(100.0, max(0.0, raw_risk * 100.0)), 1)
+    # Risk Floor Escalation for Critical Security Breaches:
+    # A single definitive security breach (Interpol stolen document, forged checksum,
+    # spliced photo, or biometric impostor) cannot be diluted by compliant signals in other modules.
+    has_check_digit_fail = any("check digit mismatch" in err.lower() for err in validation_result.get("failed_checks", []))
+    is_blacklisted = bool(validation_result.get("is_blacklisted") or validation_result.get("blacklist_match"))
+    is_tampered = bool(tamper_result.get("is_tampered") or tamper_score >= 0.70)
+    is_face_mismatch = bool(has_selfie and face_result is not None and not face_result.get("is_match", False))
+
+    risk_floor = 0.0
+    if is_blacklisted:
+        risk_floor = max(risk_floor, 0.92)  # Stolen doc / Interpol SLTD hit: >90% CRITICAL
+    if is_tampered:
+        risk_floor = max(risk_floor, 0.82)  # Digital manipulation / Photoshop: >80% HIGH
+    if has_check_digit_fail:
+        risk_floor = max(risk_floor, 0.78)  # Check digit forgery: >75% HIGH
+    if is_face_mismatch:
+        risk_floor = max(risk_floor, 0.68)  # Biometric impostor: >65% HIGH
+
+    final_risk_ratio = max(raw_risk, risk_floor)
+    overall_risk = round(min(100.0, max(0.0, final_risk_ratio * 100.0)), 1)
 
     # Determine risk category & decision
     if overall_risk < 25.0:

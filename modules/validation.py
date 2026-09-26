@@ -176,19 +176,32 @@ def validate_document(extracted_data: Dict[str, Any]) -> Dict[str, Any]:
             )
 
     # Composite check digit for TD3
-    if mrz_format == "TD3" and len(mrz_lines) >= 2 and len(mrz_lines[1]) >= 44:
-        line2 = mrz_lines[1]
-        # TD3 composite string: positions 1-10 + 14-20 + 22-43 (0-indexed: [0:10] + [13:20] + [21:43])
-        composite_data = line2[0:10] + line2[13:20] + line2[21:43]
-        expected_composite = line2[43]
-        res = validate_mrz_field_check_digit("Composite", composite_data, expected_composite)
-        check_digits["composite"] = res
-        if res["is_valid"]:
-            passed_checks.append(f"Composite overall check digit verified (ICAO 9303: {expected_composite})")
-        else:
-            failed_checks.append(
-                f"Composite check digit mismatch: printed '{expected_composite}', computed '{res['calculated_check_digit']}'"
-            )
+    if mrz_format == "TD3" or composite_cd:
+        composite_data = None
+        expected_composite = composite_cd
+        if len(mrz_lines) >= 2 and len(mrz_lines[1]) >= 44:
+            line2 = mrz_lines[1]
+            composite_data = line2[0:10] + line2[13:20] + line2[21:43]
+            expected_composite = line2[43]
+        elif doc_number and dob_str and expiry_str:
+            # Reconstruct composite payload from fields if raw line2 wasn't stored
+            doc_pad = doc_number.ljust(9, "<")[:9]
+            d_cd = doc_number_cd or "0"
+            db_cd = dob_cd or "0"
+            exp_cd_val = expiry_cd or "0"
+            opt_pad = fields.get("optional_data", "").ljust(14, "<")[:14]
+            opt_cd_val = fields.get("optional_data_check_digit", "<")
+            composite_data = f"{doc_pad}{d_cd}{dob_str}{db_cd}{expiry_str}{exp_cd_val}{opt_pad}{opt_cd_val}"
+
+        if composite_data and expected_composite:
+            res = validate_mrz_field_check_digit("Composite", composite_data, expected_composite)
+            check_digits["composite"] = res
+            if res["is_valid"]:
+                passed_checks.append(f"Composite overall check digit verified (ICAO 9303: {expected_composite})")
+            else:
+                failed_checks.append(
+                    f"Composite check digit mismatch: printed '{expected_composite}', computed '{res['calculated_check_digit']}'"
+                )
 
     # 2. Expiration Date Logic
     is_expired = False
@@ -251,9 +264,15 @@ def validate_document(extracted_data: Dict[str, Any]) -> Dict[str, Any]:
         hit = check_person(full_name, dob_str)
         if hit:
             watchlist_hit = hit
-            failed_checks.append(
-                f"WATCHLIST PERSON HIT: '{hit['name']}' matches active watchlist record ({hit['reason']})"
-            )
+            risk_level = hit.get("risk_level", "HIGH").upper()
+            if risk_level in ("CRITICAL", "HIGH"):
+                failed_checks.append(
+                    f"WATCHLIST PERSON HIT: '{hit['name']}' matches active watchlist record ({hit['reason']}) - Severity: {risk_level}"
+                )
+            else:
+                warnings.append(
+                    f"Watchlist Advisory ({risk_level}): '{hit['name']}' flagged for secondary screening ({hit['reason']})"
+                )
         else:
             passed_checks.append("Holder name cleared against Interpol/National Watchlist")
 
@@ -262,7 +281,8 @@ def validate_document(extracted_data: Dict[str, Any]) -> Dict[str, Any]:
     base_score = 1.0
 
     # Critical failures zero out or severely diminish the score
-    if blacklist_hit or watchlist_hit:
+    is_critical_watchlist = bool(watchlist_hit and watchlist_hit.get("risk_level", "HIGH").upper() in ("CRITICAL", "HIGH"))
+    if blacklist_hit or is_critical_watchlist:
         base_score = 0.05
     elif len(failed_checks) > 0:
         penalty_per_fail = 0.35
@@ -278,10 +298,10 @@ def validate_document(extracted_data: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "validation_score": validation_score,
-        "is_valid": (len(failed_checks) == 0 and not is_expired and not blacklist_hit),
+        "is_valid": (len(failed_checks) == 0 and not is_expired and not blacklist_hit and not is_critical_watchlist),
         "is_expired": is_expired,
         "days_to_expiry": days_to_expiry,
-        "is_blacklisted": bool(blacklist_hit or watchlist_hit),
+        "is_blacklisted": bool(blacklist_hit or is_critical_watchlist),
         "blacklist_match": blacklist_hit,
         "watchlist_match": watchlist_hit,
         "check_digits": check_digits,
