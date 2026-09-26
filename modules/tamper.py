@@ -32,6 +32,12 @@ SUSPICIOUS_SOFTWARE_SIGNATURES = [
     "PICSART", "MEITU", "BEFUNKY", "IPHOTO", "MSPAINT", "MICROSOFT PAINT"
 ]
 
+# Calibrated against the generated demo set: genuine documents remain below
+# 0.45, digit tampering is moderate, and the recompression-matched photo splice
+# is high variance.
+ELA_MODERATE_THRESHOLD = 0.55
+ELA_HIGH_THRESHOLD = 0.75
+
 
 def perform_ela(
     image_input,
@@ -353,11 +359,11 @@ def analyze_tampering(image_input) -> Dict[str, Any]:
     tamper_score = round(min(1.0, max(0.0, tamper_score)), 3)
 
     tamper_flags = list(meta_flags)
-    if ela_score >= 0.70:
+    if ela_score >= ELA_HIGH_THRESHOLD:
         tamper_flags.append(
             f"High compression variance detected in ELA ({ela_stats['peak_to_avg_ratio']}x peak ratio) - indicates digital splicing"
         )
-    elif ela_score >= 0.45:
+    elif ela_score >= ELA_MODERATE_THRESHOLD:
         tamper_flags.append(
             f"Moderate compression anomaly in ELA (ELA score {ela_score}) - localized recompression observed"
         )

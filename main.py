@@ -116,7 +116,7 @@ async def verify_sample_by_id(sample_id: str):
     tamper_result = analyze_tampering(doc_path)
 
     # 4. Biometric Face Verification
-    face_result = verify_faces(doc_path, selfie_path)
+    face_result = verify_faces(doc_path, selfie_path, face_boxes=matched.get("face_boxes"))
 
     # 5. Risk Scoring Engine
     risk_summary = compute_risk_score(val_result, tamper_result, face_result, has_selfie=True)

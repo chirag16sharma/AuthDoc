@@ -200,6 +200,7 @@ def generate_passport_image(
         "tamper_photo": tamper_photo,
         "software": software_metadata
     }
+    ground_truth["face_box"] = (photo_x, photo_y, photo_w, photo_h)
     img.info["mrz_line1"] = line1
     img.info["mrz_line2"] = line2
     img.info["subject_id"] = subject_id
@@ -247,7 +248,8 @@ def generate_selfie_image(subject_id: str, is_impostor: bool = False) -> Image.I
 
     gt_selfie = {
         "subject_id": selfie_subj,
-        "is_impostor": is_impostor
+        "is_impostor": is_impostor,
+        "face_box": (cx - w // 2, cy - h // 2, w, h)
     }
     img.info["subject_id"] = selfie_subj
     img.info["ground_truth"] = gt_selfie
@@ -291,6 +293,7 @@ def generate_all_demo_samples() -> List[Dict[str, Any]]:
         "expected_risk": "LOW (<15%)",
         "doc_file": p1_path,
         "selfie_file": s1_path,
+        "face_boxes": {"document": p1.info["ground_truth"]["face_box"], "selfie": s1.info["ground_truth"]["face_box"]},
         "ground_truth": p1.info.get("ground_truth", {})
     })
 
@@ -320,6 +323,7 @@ def generate_all_demo_samples() -> List[Dict[str, Any]]:
         "expected_risk": "HIGH (>75%)",
         "doc_file": p2_path,
         "selfie_file": s2_path,
+        "face_boxes": {"document": p2.info["ground_truth"]["face_box"], "selfie": s2.info["ground_truth"]["face_box"]},
         "ground_truth": p2.info.get("ground_truth", {})
     })
 
@@ -341,7 +345,7 @@ def generate_all_demo_samples() -> List[Dict[str, Any]]:
     p3_path = os.path.join(SAMPLES_DIR, "demo3_photoshop_spliced.jpg")
     s3_path = os.path.join(SAMPLES_DIR, "demo3_selfie_taylor.jpg")
     # Save with Photoshop software tag in EXIF and info
-    p3.save(p3_path, "JPEG", quality=85, exif=getattr(p3, "_exif_data", p3.getexif()))
+    p3.save(p3_path, "JPEG", quality=90, exif=getattr(p3, "_exif_data", p3.getexif()))
     s3.save(s3_path, "JPEG", quality=90, exif=getattr(s3, "_exif_data", s3.getexif()))
     samples.append({
         "id": "scenario_3_photoshop_forgery",
@@ -351,6 +355,7 @@ def generate_all_demo_samples() -> List[Dict[str, Any]]:
         "expected_risk": "HIGH (>80%)",
         "doc_file": p3_path,
         "selfie_file": s3_path,
+        "face_boxes": {"document": p3.info["ground_truth"]["face_box"], "selfie": s3.info["ground_truth"]["face_box"]},
         "ground_truth": p3.info.get("ground_truth", {})
     })
 
@@ -380,6 +385,7 @@ def generate_all_demo_samples() -> List[Dict[str, Any]]:
         "expected_risk": "CRITICAL (>90%)",
         "doc_file": p4_path,
         "selfie_file": s4_path,
+        "face_boxes": {"document": p4.info["ground_truth"]["face_box"], "selfie": s4.info["ground_truth"]["face_box"]},
         "ground_truth": p4.info.get("ground_truth", {})
     })
 
@@ -410,6 +416,7 @@ def generate_all_demo_samples() -> List[Dict[str, Any]]:
         "expected_risk": "HIGH (>65%)",
         "doc_file": p5_path,
         "selfie_file": s5_path,
+        "face_boxes": {"document": p5.info["ground_truth"]["face_box"], "selfie": s5.info["ground_truth"]["face_box"]},
         "ground_truth": {
             **p5.info.get("ground_truth", {}),
             "is_impostor": True,

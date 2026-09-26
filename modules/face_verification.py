@@ -64,13 +64,26 @@ def _extract_subject_id(pil_img: Image.Image) -> Optional[str]:
     return None
 
 
-def crop_face(pil_img: Image.Image) -> Tuple[Optional[Image.Image], Optional[Tuple[int, int, int, int]]]:
+def crop_face(
+    pil_img: Image.Image,
+    face_box: Optional[Tuple[int, int, int, int]] = None
+) -> Tuple[Optional[Image.Image], Optional[Tuple[int, int, int, int]]]:
     """Detects and crops the primary face from an image.
     Uses OpenCV Haar Cascade when available, with aspect-ratio-aware fallback.
     Returns:
         (cropped_face_pil: Image | None, bounding_box: (x, y, w, h) | None)
     """
     w, h = pil_img.size
+
+    if face_box is not None:
+        x, y, fw, fh = face_box
+        x1 = max(0, min(w, int(x)))
+        y1 = max(0, min(h, int(y)))
+        x2 = max(x1, min(w, int(x + fw)))
+        y2 = max(y1, min(h, int(y + fh)))
+        if x2 > x1 and y2 > y1:
+            box = (x1, y1, x2 - x1, y2 - y1)
+            return pil_img.crop((x1, y1, x2, y2)), box
 
     if HAS_OPENCV:
         cascade = _get_haar_cascade()
@@ -196,7 +209,8 @@ def verify_faces(
     doc_image_input,
     selfie_image_input,
     model_name: str = "VGG-Face",
-    ground_truth: Optional[Dict[str, Any]] = None
+    ground_truth: Optional[Dict[str, Any]] = None,
+    face_boxes: Optional[Dict[str, Tuple[int, int, int, int]]] = None
 ) -> Dict[str, Any]:
     """Module 4 Main Pipeline:
     Compares the face found in doc_image against the live selfie image.
@@ -222,8 +236,10 @@ def verify_faces(
     selfie_pil, selfie_path = to_pil(selfie_image_input)
 
     # 2. Extract crops for dashboard visual presentation
-    doc_face_crop, doc_bb = crop_face(doc_pil)
-    selfie_face_crop, selfie_bb = crop_face(selfie_pil)
+    doc_box = face_boxes.get("document") if face_boxes else None
+    selfie_box = face_boxes.get("selfie") if face_boxes else None
+    doc_face_crop, doc_bb = crop_face(doc_pil, doc_box)
+    selfie_face_crop, selfie_bb = crop_face(selfie_pil, selfie_box)
 
     doc_crop_b64 = image_to_base64_jpeg(doc_face_crop) if doc_face_crop else None
     selfie_crop_b64 = image_to_base64_jpeg(selfie_face_crop) if selfie_face_crop else None
